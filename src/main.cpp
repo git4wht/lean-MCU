@@ -1,6 +1,6 @@
 #include <Arduino.h>
+#include <TimerInterrupt_Generic.h>
 
-#include "TimerInterrupt_Generic.h"
 #define TIMER1_INTERVAL_MS 20
 
 // #define REFRESH_INTERVAL 16
@@ -41,9 +41,9 @@
 // SBUS 通道数
 #define SBUS_CHANNELS_COUNT 16
 
-// 通道数
-#define SERIAL_CRSF Serial
+// UART 定义
 #define SERIAL_SBUS Serial1
+#define SERIAL_CRSF Serial2
 
 // CRSF 使用 Serial0
 #include "crsf.h"
@@ -77,8 +77,6 @@ SBUS sbus(SERIAL_SBUS);
 uint16_t channels[SBUS_CHANNELS_COUNT];
 bool failSafe;
 bool lostFrame;
-
-
 
 // CRC8 implementation with polynom = x^8+x^7+x^6+x^4+x^2+1 (0xD5)
 const unsigned char CRC8TAB[256] = {
@@ -157,8 +155,9 @@ uint8_t createCrossfireChannelsFrame(uint8_t *frame)
 }
 
 // ---------------
+static bool toggle = false;
 
-void runCrossfire()
+bool IRAM_ATTR runCrossfire(void *timerNo)
 {
 
   memset(frame, 0, sizeof(frame));
@@ -171,6 +170,12 @@ void runCrossfire()
   //   for (int i = 0; i < telemetryRxBufferCountStream; i++) {
   //       processCrossfireTelemetryData(SERIAL_CRSF.read());
   //   }
+
+  // timer interrupt toggles pin LED_BUILTIN
+  digitalWrite(LED_BUILTIN, toggle);
+  toggle = !toggle;
+  delay(1000);
+  return true;
 }
 
 void ICACHE_RAM_ATTR sbusCallback(volatile uint16_t *data)
@@ -180,9 +185,11 @@ void ICACHE_RAM_ATTR sbusCallback(volatile uint16_t *data)
   {
     crossfireChannels[i] = map(data[i], SBUS_LOW, SBUS_HIGH, CROSSFIRE_LOW, CROSSFIRE_HIGH);
   }
-  runCrossfire();
+  // runCrossfire();
 }
 
+// Init ESP32 timer 0
+ESP32Timer CrsfTimer(0);
 
 void setup()
 {
@@ -202,7 +209,7 @@ void setup()
 
   // Interval in microsecs
   // 定义时钟激活发送CRSF
-  // attachDueInterrupt(TIMER1_INTERVAL_MS * 1000, runCrossfire, "CrsfTimer");
+  CrsfTimer.attachInterruptInterval(TIMER1_INTERVAL_MS * 1000, runCrossfire);
 }
 
 void loop()
